@@ -1,4 +1,4 @@
-#include <stdio.h>
+ï»¿#include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <time.h>
@@ -7,23 +7,27 @@
 #define CANVAS_WIDTH 10
 #define CANVAS_HEIGHT 20
 
-//±¼¸¨®É¶¡
+//æ‰è½æ™‚é–“
 #define FALL_DELAY 500
 #define RENDER_DELAY 100
 
-//Áä½L¹ï·Óªí
+//éµç›¤å°ç…§è¡¨
 #define LEFT_KEY 0x25
 #define RIGHT_KEY 0x27 
 #define ROTATE_KEY 0x26 
 #define DOWN_KEY 0x28 
 #define FALL_KEY 0x20 
+#define HOLD_KEY 0x58  // ä½¿ç”¨Xéµä½œç‚ºHoldéµ
+#define Counterclockwise_KEY 0x5A //ä½¿ç”¨Zéµä½œç‚ºé€†æ™‚é‡éµ
 
-// §PÂ_¬O§_¦³«ö¤U«ö¶sªº¨ç¦¡
+// åˆ¤æ–·æ˜¯å¦æœ‰æŒ‰ä¸‹æŒ‰éˆ•çš„å‡½å¼
 #define LEFT_FUNC() GetAsyncKeyState(LEFT_KEY) & 0x8000
 #define RIGHT_FUNC() GetAsyncKeyState(RIGHT_KEY) & 0x8000
 #define ROTATE_FUNC() GetAsyncKeyState(ROTATE_KEY) & 0x8000
 #define DOWN_FUNC() GetAsyncKeyState(DOWN_KEY) & 0x8000
 #define FALL_FUNC() GetAsyncKeyState(FALL_KEY) & 0x8000
+#define HOLD_FUNC() GetAsyncKeyState(HOLD_KEY) & 0x8000
+#define Counterclockwise_FUNC() GetAsyncKeyState(Counterclockwise_KEY) & 0x8000
 
 typedef enum
 {
@@ -64,6 +68,8 @@ typedef struct
     int score;
     int rotate;
     int fallTime;
+    ShapeId hold;       // æ–°å¢ï¼Œç”¨ä¾†ä¿å­˜Holdçš„æ–¹å¡Š
+    bool holdUsed;      // æ–°å¢ï¼Œè¨˜éŒ„é€™ä¸€è¼ªæ˜¯å¦å·²ç¶“ä½¿ç”¨éHold
     ShapeId queue[4];
 } State;
 
@@ -224,9 +230,9 @@ void printCanvas(Block canvas[CANVAS_HEIGHT][CANVAS_WIDTH], State* state)
         printf("\033[0m|\n");
     }
 
-    // ¿é¥XNext:
+    // è¼¸å‡ºNext:
     printf("\033[%d;%dHNext:", 3, CANVAS_WIDTH * 2 + 5);
-    // ¿é¥X¦³¬Æ»ò¤è¶ô
+    // è¼¸å‡ºæœ‰ç”šéº¼æ–¹å¡Š
     for (int i = 1; i <= 3; i++)
     {
         Shape shapeData = shapes[state->queue[i]];
@@ -246,6 +252,28 @@ void printCanvas(Block canvas[CANVAS_HEIGHT][CANVAS_WIDTH], State* state)
             }
         }
     }
+
+    printf("\033[%d;%dHHold:", 15, CANVAS_WIDTH * 2 + 5);
+    if (state->hold != EMPTY)
+    {
+        Shape holdShape = shapes[state->hold];
+        for (int j = 0; j < 4; j++)
+        {
+            printf("\033[%d;%dH", 18 + j, CANVAS_WIDTH * 2 + 15);
+            for (int k = 0; k < 4; k++)
+            {
+                if (j < holdShape.size && k < holdShape.size && holdShape.rotates[0][j][k])
+                {
+                    printf("\x1b[%dm  ", holdShape.color);
+                }
+                else
+                {
+                    printf("\x1b[0m  ");
+                }
+            }
+        }
+    }
+    printf("\033[%d;%dHLine:%d", 21, CANVAS_WIDTH * 2 + 5, state->score);
     return;
 }
 
@@ -254,19 +282,19 @@ bool move(Block canvas[CANVAS_HEIGHT][CANVAS_WIDTH], int originalX, int original
     Shape shapeData = shapes[shapeId];
     int size = shapeData.size;
 
-    // §PÂ_¤è¶ô¦³¨S¦³¤£²Å¦X±ø¥ó
+    // åˆ¤æ–·æ–¹å¡Šæœ‰æ²’æœ‰ä¸ç¬¦åˆæ¢ä»¶
     for (int i = 0; i < size; i++)
     {
         for (int j = 0; j < size; j++)
         {
             if (shapeData.rotates[newRotate][i][j])
             {
-                // §PÂ_¦³¨S¦³¥X¥hÃä¬É
+                // åˆ¤æ–·æœ‰æ²’æœ‰å‡ºå»é‚Šç•Œ
                 if (newX + j < 0 || newX + j >= CANVAS_WIDTH || newY + i < 0 || newY + i >= CANVAS_HEIGHT)
                 {
                     return false;
                 }
-                // §PÂ_¦³¨S¦³¸I¨ì§Oªº¤è¶ô
+                // åˆ¤æ–·æœ‰æ²’æœ‰ç¢°åˆ°åˆ¥çš„æ–¹å¡Š
                 if (!canvas[newY + i][newX + j].current && canvas[newY + i][newX + j].shape != EMPTY)
                 {
                     return false;
@@ -275,7 +303,7 @@ bool move(Block canvas[CANVAS_HEIGHT][CANVAS_WIDTH], int originalX, int original
         }
     }
 
-    // ²¾°£¤è¶ôÂÂªº¦ì¸m
+    // ç§»é™¤æ–¹å¡ŠèˆŠçš„ä½ç½®
     for (int i = 0; i < size; i++)
     {
         for (int j = 0; j < size; j++)
@@ -287,7 +315,7 @@ bool move(Block canvas[CANVAS_HEIGHT][CANVAS_WIDTH], int originalX, int original
         }
     }
 
-    // ²¾°Ê¤è¶ô¦Ü·sªº¦ì¸m
+    // ç§»å‹•æ–¹å¡Šè‡³æ–°çš„ä½ç½®
     for (int i = 0; i < size; i++)
     {
         for (int j = 0; j < size; j++)
@@ -318,7 +346,7 @@ int clearLine(Block canvas[CANVAS_HEIGHT][CANVAS_WIDTH])
 
     for (int i = CANVAS_HEIGHT - 1; i >= 0; i--)
     {
-        //­ì¥»ªºcode
+        //åŸæœ¬çš„code
         bool isFull = true;
         for (int j = 0; j < CANVAS_WIDTH; j++)
         {
@@ -328,7 +356,7 @@ int clearLine(Block canvas[CANVAS_HEIGHT][CANVAS_WIDTH])
                 break;
             }
         }
-        //·s¼Wªº
+        //æ–°å¢çš„
         if (isFull) {
             linesCleared += 1;
 
@@ -355,6 +383,14 @@ void logic(Block canvas[CANVAS_HEIGHT][CANVAS_WIDTH], State* state)
             state->rotate = newRotate;
         }
     }
+    else if (Counterclockwise_FUNC())
+    {
+        int newRotate = (state->rotate - 1 + 4) % 4;
+        if (move(canvas, state->x, state->y, state->rotate, state->x, state->y, newRotate, state->queue[0]))
+        {
+            state->rotate = newRotate;
+        }
+    }
     else if (LEFT_FUNC())
     {
         if (move(canvas, state->x, state->y, state->rotate, state->x - 1, state->y, state->rotate, state->queue[0]))
@@ -375,15 +411,53 @@ void logic(Block canvas[CANVAS_HEIGHT][CANVAS_WIDTH], State* state)
     }
     else if (FALL_FUNC())
     {
-        state->fallTime += FALL_DELAY * CANVAS_HEIGHT;
+        while (move(canvas, state->x, state->y, state->rotate, state->x, state->y + 1, state->rotate, state->queue[0]))
+        {
+            state->y++;
+        }
+        state->fallTime = 0;
+    }
+    else if (HOLD_FUNC() && !state->holdUsed)
+    {
+        ShapeId currentShape = state->queue[0];
+        Shape shapeData = shapes[currentShape];
+
+        // æ¸…é™¤ç•¶å‰æ–¹å¡Šçš„ä½ç½®
+        for (int i = 0; i < shapeData.size; i++)
+        {
+            for (int j = 0; j < shapeData.size; j++)
+            {
+                if (shapeData.rotates[state->rotate][i][j])
+                {
+                    resetBlock(&canvas[state->y + i][state->x + j]);
+                }
+            }
+        }
+
+        // å¦‚æœholdä¸­æœ‰æ–¹å¡Šï¼Œå°‡å…¶èˆ‡ç•¶å‰æ–¹å¡Šäº¤æ›
+        if (state->hold != EMPTY)
+        {
+            state->queue[0] = state->hold;
+        }
+        else // å¦å‰‡å°‡ä¸‹å€‹æ–¹å¡Šç½®å…¥Hold
+        {
+            state->queue[0] = state->queue[1];
+            state->queue[1] = state->queue[2];
+            state->queue[2] = state->queue[3];
+            state->queue[3] = rand() % 7;
+        }
+
+        state->hold = currentShape;
+        state->holdUsed = true;
+
+        // é‡ç½®ä½ç½®å’Œæ—‹è½‰ç‹€æ…‹
+        state->x = CANVAS_WIDTH / 2;
+        state->y = 0;
+        state->rotate = 0;
     }
 
     state->fallTime += RENDER_DELAY;
-    //100
-    //200
-    //300
-    //400
-    //500
+
     while (state->fallTime >= FALL_DELAY)
     {
         state->fallTime -= FALL_DELAY;
@@ -402,12 +476,13 @@ void logic(Block canvas[CANVAS_HEIGHT][CANVAS_WIDTH], State* state)
             state->queue[1] = state->queue[2];
             state->queue[2] = state->queue[3];
             state->queue[3] = rand() % 7;
+            state->holdUsed = false;
 
-            //µ²§ô¿é¥X
+            //çµæŸè¼¸å‡º
             if (!move(canvas, state->x, state->y, state->rotate, state->x, state->y, state->rotate, state->queue[0]))
             {
-                printf("\033[%d;%dH\x1b[41m GAME OVER \x1b[0m\033[%d;%dH", CANVAS_HEIGHT - 3, CANVAS_WIDTH * 2 + 5, CANVAS_HEIGHT + 5, 0);
-                exit(0);//µ²§ô¹CÀ¸
+                printf("\033[%d;%dH\x1b[41m GAME OVER \x1b[0m\033[%d;%dH", CANVAS_HEIGHT - 9, CANVAS_WIDTH * 2 -14, CANVAS_HEIGHT + 5, 0);
+                exit(0);//çµæŸéŠæˆ²
             }
         }
     }
@@ -422,13 +497,15 @@ int main()
         .y = 0,
         .score = 0,
         .rotate = 0,
-        .fallTime = 0 };
+        .fallTime = 0,
+        .hold = EMPTY,
+        .holdUsed = false };
 
     for (int i = 0; i < 4; i++)
     {
         state.queue[i] = rand() % 7;
     }
-
+    
     Block canvas[CANVAS_HEIGHT][CANVAS_WIDTH];
     for (int i = 0; i < CANVAS_HEIGHT; i++)
     {
@@ -457,7 +534,7 @@ int main()
         logic(canvas, &state);
         Sleep(100);
     }
-    // printf("\e[?25l"); // hide cursor
+     printf("\e[?25l"); // hide cursor
 
     return 0;
 }
